@@ -77,16 +77,37 @@ export class PostsService {
     await this.repo.remove(post);
   }
 
+  private static readonly PRODUCT_SPOTLIGHT_CHANCE = 0.25;
+
+  private pickProductSpotlight(business: BusinessProfile): string | null {
+    const products = (business.products ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (products.length === 0) {
+      return null;
+    }
+    if (Math.random() >= PostsService.PRODUCT_SPOTLIGHT_CHANCE) {
+      return null;
+    }
+    return products[Math.floor(Math.random() * products.length)];
+  }
+
   private async generateContent(
     business: BusinessProfile,
   ): Promise<GeneratedContent> {
     const model =
       this.config.get<string>('OPENAI_MODEL') ?? 'gpt-5-mini';
 
+    const spotlight = this.pickProductSpotlight(business);
+    const spotlightInstruction = spotlight
+      ? `\n\nFor today's post specifically, focus on promoting this product/tool instead of the business in general: ${spotlight}\nWrite the caption and image idea around this product, include a clear call to action, and mention it by name.`
+      : '';
+
     const prompt = `You are a social media marketing expert writing a daily LinkedIn post for the following business.
 
 Business name: ${business.name}
-About the business: ${business.description}
+About the business: ${business.description}${spotlightInstruction}
 
 Produce a single fresh marketing idea for today. Respond ONLY with strict JSON matching this shape, no markdown fences:
 {

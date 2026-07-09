@@ -17,6 +17,9 @@ export class BusinessProfile {
   @Column({ type: 'text' })
   description: string;
 
+  @Column({ type: 'text', nullable: true })
+  products: string | null;
+
   @Column({ default: false })
   autoPublish: boolean;
 

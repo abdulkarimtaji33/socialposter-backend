@@ -9,6 +9,10 @@ export class UpsertBusinessProfileDto {
   description: string;
 
   @IsOptional()
+  @IsString()
+  products?: string;
+
+  @IsOptional()
   @IsBoolean()
   autoPublish?: boolean;
 }
