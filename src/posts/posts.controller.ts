@@ -1,11 +1,14 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post as HttpPost,
 } from '@nestjs/common';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
 @Controller('posts')
@@ -25,6 +28,14 @@ export class PostsController {
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.postsService.findOne(id);
+  }
+
+  @Patch(':id')
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePostDto,
+  ) {
+    return this.postsService.update(id, dto);
   }
 
   @HttpPost(':id/publish')

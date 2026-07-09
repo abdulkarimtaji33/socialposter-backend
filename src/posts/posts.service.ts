@@ -15,6 +15,7 @@ import { BusinessProfile } from '../business/business-profile.entity';
 import { BusinessService } from '../business/business.service';
 import { LinkedInService } from '../linkedin/linkedin.service';
 import { Post, PostStatus } from './post.entity';
+import { UpdatePostDto } from './dto/update-post.dto';
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 
@@ -56,6 +57,17 @@ export class PostsService {
     return post;
   }
 
+  async update(id: number, dto: UpdatePostDto): Promise<Post> {
+    const post = await this.findOne(id);
+    if (dto.caption !== undefined) {
+      post.caption = dto.caption;
+    }
+    if (dto.hashtags !== undefined) {
+      post.hashtags = dto.hashtags;
+    }
+    return this.repo.save(post);
+  }
+
   async remove(id: number): Promise<void> {
     const post = await this.findOne(id);
     const filePath = path.join(process.cwd(), post.imageUrl.replace(/^\//, ''));
@@ -74,13 +86,7 @@ export class PostsService {
     const prompt = `You are a social media marketing expert writing a daily LinkedIn post for the following business.
 
 Business name: ${business.name}
-Industry: ${business.industry ?? 'N/A'}
-Description: ${business.description}
-Target audience: ${business.targetAudience ?? 'N/A'}
-Tone of voice: ${business.tone ?? 'professional and engaging'}
-Unique selling points: ${business.uniqueSellingPoints ?? 'N/A'}
-Website: ${business.website ?? 'N/A'}
-Location: ${business.location ?? 'N/A'}
+About the business: ${business.description}
 
 Produce a single fresh marketing idea for today. Respond ONLY with strict JSON matching this shape, no markdown fences:
 {
