@@ -116,7 +116,7 @@ The image itself must contain real, legible text laid out like a designed social
 Respond ONLY with strict JSON matching this shape, no markdown fences:
 {
   "imagePrompt": "a detailed prompt for an image generation model describing a professional marketing graphic, with the exact hook headline text, main content text, and CTA text to render on the image, plus their placement/layout and the background/visual style behind them",
-  "caption": "an engaging LinkedIn caption (120-220 words) written in the business's tone, clearly structured as: a strong hook as the first line, a short main content section expanding on the value/idea, and a clear CTA at the end, optimized for LinkedIn SEO and engagement, directly related to the image",
+  "caption": "an engaging LinkedIn caption (120-220 words) written for the business, clearly structured as: a strong hook as the first line, a short main content section expanding on the value/idea, and a clear CTA at the end, optimized for LinkedIn SEO and engagement, directly related to the image",
   "hashtags": ["5 to 8 relevant hashtags without the # symbol"]
 }`;
 
