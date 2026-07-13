@@ -109,10 +109,14 @@ export class PostsService {
 Business name: ${business.name}
 About the business: ${business.description}${spotlightInstruction}
 
-Produce a single fresh marketing idea for today. Respond ONLY with strict JSON matching this shape, no markdown fences:
+Produce a single fresh marketing idea for today, structured around three parts: an attention-grabbing HOOK, short MAIN CONTENT (the value/idea), and a clear CTA (call to action). Both the image and the caption must use this same hook / main content / CTA structure so they reinforce each other.
+
+The image itself must contain real, legible text laid out like a designed social media graphic (bold hook headline at the top, 1-2 short supporting lines in the middle as the main content, and a short CTA line/button near the bottom) — not just a plain photo. Describe the exact text to render, its placement, and a clean, on-brand visual background/design behind it.
+
+Respond ONLY with strict JSON matching this shape, no markdown fences:
 {
-  "imagePrompt": "a detailed, vivid prompt describing a professional marketing image (no text/words rendered in the image) that visually represents the idea",
-  "caption": "an engaging LinkedIn post caption (120-220 words) written in the business's tone, with a strong hook in the first line, that is directly related to the image and optimized for LinkedIn SEO and engagement",
+  "imagePrompt": "a detailed prompt for an image generation model describing a professional marketing graphic, with the exact hook headline text, main content text, and CTA text to render on the image, plus their placement/layout and the background/visual style behind them",
+  "caption": "an engaging LinkedIn caption (120-220 words) written in the business's tone, clearly structured as: a strong hook as the first line, a short main content section expanding on the value/idea, and a clear CTA at the end, optimized for LinkedIn SEO and engagement, directly related to the image",
   "hashtags": ["5 to 8 relevant hashtags without the # symbol"]
 }`;
 
