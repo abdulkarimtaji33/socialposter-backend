@@ -2,20 +2,33 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BusinessProfile } from '../business/business-profile.entity';
+import { PostPublication } from './post-publication.entity';
+import { PostPlatform } from './post-platform.enum';
 
-export enum PostStatus {
-  DRAFT = 'draft',
-  PUBLISHED = 'published',
-  FAILED = 'failed',
-}
+export { PostPlatform };
 
 @Entity('posts')
 export class Post {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'int', nullable: true })
+  businessId: number | null;
+
+  @ManyToOne(() => BusinessProfile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'businessId' })
+  business: BusinessProfile | null;
+
+  /** The platform whose prompt style/tone this content was generated for. */
+  @Column({ type: 'enum', enum: PostPlatform, default: PostPlatform.LINKEDIN })
+  platform: PostPlatform;
 
   @Column({ type: 'text' })
   imagePrompt: string;
@@ -29,17 +42,11 @@ export class Post {
   @Column({ type: 'text', nullable: true })
   hashtags: string;
 
-  @Column({ type: 'enum', enum: PostStatus, default: PostStatus.DRAFT })
-  status: PostStatus;
-
-  @Column({ length: 255, nullable: true })
-  linkedinPostId: string;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage: string | null;
-
-  @Column({ nullable: true })
-  publishedAt: Date;
+  @OneToMany(() => PostPublication, (publication) => publication.post, {
+    cascade: true,
+    eager: true,
+  })
+  publications: PostPublication[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
 import { Repository } from 'typeorm';
+import { BusinessService } from '../business/business.service';
 import { LinkedInAccount } from './linkedin-account.entity';
 
 const LINKEDIN_AUTH_URL = 'https://www.linkedin.com/oauth/v2/authorization';
@@ -22,10 +23,12 @@ export class LinkedInService {
   constructor(
     @InjectRepository(LinkedInAccount)
     private readonly repo: Repository<LinkedInAccount>,
+    private readonly businessService: BusinessService,
     private readonly config: ConfigService,
   ) {}
 
-  getAuthUrl(): string {
+  /** The OAuth `state` param carries the business slug through the redirect. */
+  getAuthUrl(businessSlug: string): string {
     const clientId = this.config.get<string>('LINKEDIN_CLIENT_ID');
     const redirectUri = this.config.get<string>('LINKEDIN_REDIRECT_URI');
     if (!clientId || !redirectUri) {
@@ -38,12 +41,14 @@ export class LinkedInService {
       client_id: clientId,
       redirect_uri: redirectUri,
       scope: LINKEDIN_SCOPES.join(' '),
-      state: 'socialposter',
+      state: businessSlug,
     });
     return `${LINKEDIN_AUTH_URL}?${params.toString()}`;
   }
 
-  async handleCallback(code: string): Promise<LinkedInAccount> {
+  async handleCallback(code: string, businessSlug: string): Promise<LinkedInAccount> {
+    const business = await this.businessService.getBySlugOrThrow(businessSlug);
+
     const clientId = this.config.get<string>('LINKEDIN_CLIENT_ID');
     const clientSecret = this.config.get<string>('LINKEDIN_CLIENT_SECRET');
     const redirectUri = this.config.get<string>('LINKEDIN_REDIRECT_URI');
@@ -62,17 +67,16 @@ export class LinkedInService {
 
     const { access_token, expires_in } = tokenResponse.data;
 
-    const profileResponse = await axios.get(
-      `${LINKEDIN_API_BASE}/userinfo`,
-      { headers: { Authorization: `Bearer ${access_token}` } },
-    );
+    const profileResponse = await axios.get(`${LINKEDIN_API_BASE}/userinfo`, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
 
     const personUrn = `urn:li:person:${profileResponse.data.sub}`;
     const name = profileResponse.data.name ?? null;
 
-    let account = await this.repo.findOne({ where: {} });
+    let account = await this.repo.findOne({ where: { businessId: business.id } });
     if (!account) {
-      account = this.repo.create();
+      account = this.repo.create({ businessId: business.id });
     }
     account.accessToken = access_token;
     account.expiresAt = new Date(Date.now() + expires_in * 1000);
@@ -82,12 +86,16 @@ export class LinkedInService {
     return this.repo.save(account);
   }
 
-  async getStatus(): Promise<{
+  async getStatus(businessSlug: string): Promise<{
     connected: boolean;
     name?: string;
     expiresAt?: Date;
   }> {
-    const account = await this.repo.findOne({ where: {} });
+    const business = await this.businessService.findBySlug(businessSlug);
+    if (!business) {
+      return { connected: false };
+    }
+    const account = await this.repo.findOne({ where: { businessId: business.id } });
     if (!account) {
       return { connected: false };
     }
@@ -98,30 +106,38 @@ export class LinkedInService {
     };
   }
 
-  async disconnect(): Promise<void> {
-    await this.repo.clear();
+  async isConnected(businessId: number): Promise<boolean> {
+    const account = await this.repo.findOne({ where: { businessId } });
+    return !!account && account.expiresAt.getTime() > Date.now();
   }
 
-  private async getAccountOrThrow(): Promise<LinkedInAccount> {
-    const account = await this.repo.findOne({ where: {} });
+  async disconnect(businessSlug: string): Promise<void> {
+    const business = await this.businessService.findBySlug(businessSlug);
+    if (!business) return;
+    await this.repo.delete({ businessId: business.id });
+  }
+
+  private async getAccountOrThrow(businessId: number): Promise<LinkedInAccount> {
+    const account = await this.repo.findOne({ where: { businessId } });
     if (!account) {
       throw new NotFoundException(
-        'LinkedIn account is not connected. Connect it first.',
+        'LinkedIn account is not connected for this business. Connect it first.',
       );
     }
     if (account.expiresAt.getTime() < Date.now()) {
       throw new BadRequestException(
-        'LinkedIn access token has expired. Please reconnect your account.',
+        'LinkedIn access token has expired. Please reconnect this business.',
       );
     }
     return account;
   }
 
   async publishImagePost(params: {
+    businessId: number;
     text: string;
     imageBuffer: Buffer;
   }): Promise<string> {
-    const account = await this.getAccountOrThrow();
+    const account = await this.getAccountOrThrow(params.businessId);
     const headers = {
       Authorization: `Bearer ${account.accessToken}`,
       'Content-Type': 'application/json',

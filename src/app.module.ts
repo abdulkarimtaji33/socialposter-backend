@@ -9,7 +9,10 @@ import { BusinessModule } from './business/business.module';
 import { BusinessProfile } from './business/business-profile.entity';
 import { LinkedInModule } from './linkedin/linkedin.module';
 import { LinkedInAccount } from './linkedin/linkedin-account.entity';
+import { Logo } from './logo/logo.entity';
+import { LogoModule } from './logo/logo.module';
 import { Post } from './posts/post.entity';
+import { PostPublication } from './posts/post-publication.entity';
 import { PostsModule } from './posts/posts.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 
@@ -29,7 +32,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
         username: config.get<string>('MYSQL_USER'),
         password: config.get<string>('MYSQL_PASSWORD'),
         database: config.get<string>('MYSQL_DATABASE'),
-        entities: [BusinessProfile, LinkedInAccount, Post],
+        entities: [BusinessProfile, LinkedInAccount, Post, PostPublication, Logo],
         synchronize: true,
       }),
     }),
@@ -37,6 +40,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     LinkedInModule,
     PostsModule,
     SchedulerModule,
+    LogoModule,
   ],
   controllers: [AppController],
   providers: [AppService],
