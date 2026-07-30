@@ -202,7 +202,7 @@ Respond ONLY with strict JSON matching this shape, no markdown fences:
       'an elegant flat-lay of sparkling gemstones and crystal jewelry, optionally with a gaming accessory, on a premium dark purple/indigo background with gold and teal accent lighting, modern and premium feel',
     cgagames:
       'a dynamic composition of gaming consoles/controllers (PS5, Xbox, Switch) with neon purple/red lighting, high-energy gaming aesthetic, photorealistic, high detail, dark background',
-    cybollic:
+    zenzicas:
       'a modern tech/software aesthetic: abstract flowing data lines, subtle circuit or network node patterns, a laptop or dashboard UI mockup showing charts/automation, deep navy and electric blue gradient background, clean corporate-tech feel, no gaming consoles or gaming imagery of any kind',
   };
 
