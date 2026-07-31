@@ -11,6 +11,7 @@ export interface MetaAccountConfig {
 const SLUG_ENV_PREFIX: Record<string, string> = {
   zenzicly: 'ZENZICLY',
   cgagames: 'CGAGAMES',
+  zenzicas: 'ZENZICAS',
 };
 
 export function getMetaAccountConfig(

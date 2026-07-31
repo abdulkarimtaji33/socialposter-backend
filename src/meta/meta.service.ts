@@ -30,6 +30,40 @@ export class MetaService {
     return `${base.replace(/\/$/, '')}${imageUrl}`;
   }
 
+  private async resolvePageAccessToken(
+    pageId: string,
+    token: string,
+  ): Promise<string> {
+    try {
+      const debug = await axios.get(`${META_GRAPH_API_BASE}/debug_token`, {
+        params: { input_token: token, access_token: token },
+      });
+      const data = debug.data?.data as
+        | { type?: string; is_valid?: boolean }
+        | undefined;
+      if (data?.type === 'PAGE' && data.is_valid) {
+        return token;
+      }
+    } catch {
+      // Fall through to /me/accounts lookup.
+    }
+
+    const accounts = await axios.get(`${META_GRAPH_API_BASE}/me/accounts`, {
+      params: { fields: 'id,access_token', access_token: token },
+    });
+    const match = (accounts.data?.data as Array<{ id: string; access_token?: string }> | undefined)?.find(
+      (account) => account.id === pageId,
+    );
+    if (!match?.access_token) {
+      throw new BadRequestException(
+        `Could not resolve a Page access token for page "${pageId}". ` +
+          'Provide a Page token, or a user/system token with pages_manage_posts for that page.',
+      );
+    }
+
+    return match.access_token;
+  }
+
   async publishToFacebookPage(params: {
     businessSlug: string;
     imageUrl: string;
@@ -39,6 +73,7 @@ export class MetaService {
       this.config,
       params.businessSlug,
     );
+    const pageToken = await this.resolvePageAccessToken(fbPageId, fbPageToken);
     const publicImageUrl = this.getPublicImageUrl(params.imageUrl);
 
     const response = await axios.post(
@@ -48,7 +83,7 @@ export class MetaService {
         params: {
           url: publicImageUrl,
           caption: params.caption,
-          access_token: fbPageToken,
+          access_token: pageToken,
         },
       },
     );
@@ -65,10 +100,10 @@ export class MetaService {
     imageUrl: string;
     caption: string;
   }): Promise<string> {
-    const { igBusinessId, igToken } = getMetaAccountConfig(
-      this.config,
-      params.businessSlug,
-    );
+    const { fbPageId, fbPageToken, igBusinessId, igToken } =
+      getMetaAccountConfig(this.config, params.businessSlug);
+    const pageToken = await this.resolvePageAccessToken(fbPageId, fbPageToken);
+    const igAccessToken = igToken === fbPageToken ? pageToken : igToken;
     const publicImageUrl = this.getPublicImageUrl(params.imageUrl);
 
     const createResponse = await axios.post(
@@ -76,7 +111,7 @@ export class MetaService {
       {
         image_url: publicImageUrl,
         caption: params.caption,
-        access_token: igToken,
+        access_token: igAccessToken,
       },
     );
 
@@ -91,7 +126,7 @@ export class MetaService {
       `${META_GRAPH_API_BASE}/${igBusinessId}/media_publish`,
       {
         creation_id: creationId,
-        access_token: igToken,
+        access_token: igAccessToken,
       },
     );
 

@@ -9,10 +9,16 @@ import {
   Patch,
   Post as HttpPost,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { GenerateFromPhotoDto } from './dto/generate-from-photo.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostPlatform } from './post.entity';
 import { PostsService } from './posts.service';
+
+const ALLOWED_PHOTO_MIMETYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 function parsePlatform(value: string): PostPlatform {
   if (!Object.values(PostPlatform).includes(value as PostPlatform)) {
@@ -45,6 +51,49 @@ export class PostsController {
     return this.postsService.generateForBusiness(
       business,
       resolvedPlatform,
+      resolvedTargets,
+    );
+  }
+
+  @HttpPost('generate-from-photo')
+  @UseInterceptors(
+    FileInterceptor('photo', {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+      fileFilter: (_req, file, callback) => {
+        if (!ALLOWED_PHOTO_MIMETYPES.includes(file.mimetype)) {
+          callback(
+            new BadRequestException(
+              `Unsupported image type "${file.mimetype}". Use PNG, JPEG, or WEBP.`,
+            ),
+            false,
+          );
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  async generateFromPhoto(
+    @Query('business') business: string,
+    @Query('targetPlatforms') targetPlatforms: string | undefined,
+    @UploadedFile() photo: Express.Multer.File,
+    @Body() dto: GenerateFromPhotoDto,
+  ) {
+    if (!business) {
+      throw new BadRequestException('Missing required "business" query param.');
+    }
+    if (!photo) {
+      throw new BadRequestException('Missing required "photo" file.');
+    }
+
+    const resolvedTargets = targetPlatforms
+      ? targetPlatforms.split(',').map((p) => parsePlatform(p.trim()))
+      : undefined;
+
+    return this.postsService.generateFromProductPhoto(
+      business,
+      { buffer: photo.buffer, mimetype: photo.mimetype },
+      dto.brief,
       resolvedTargets,
     );
   }

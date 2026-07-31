@@ -25,6 +25,10 @@ export class UpdateBusinessProfileDto {
   linkedinPromptTemplate?: string;
 
   @IsOptional()
+  @IsString()
+  productPostPromptTemplate?: string;
+
+  @IsOptional()
   @IsBoolean()
   autoPublish?: boolean;
 

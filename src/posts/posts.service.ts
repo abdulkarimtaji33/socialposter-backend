@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import * as path from 'path';
 import { Between, Repository } from 'typeorm';
 import { BusinessProfile } from '../business/business-profile.entity';
@@ -28,6 +28,19 @@ interface GeneratedContent {
   caption: string;
   hashtags: string[];
 }
+
+interface ProductPostCopy {
+  hook: string;
+  ctaText: string;
+  caption: string;
+  hashtags: string[];
+}
+
+const PHOTO_MIME_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
 
 function describeError(error: unknown): string {
   const err = error as { response?: { data?: unknown }; message?: string };
@@ -108,9 +121,12 @@ export class PostsService {
 
   async remove(id: number): Promise<void> {
     const post = await this.findOne(id);
-    const filePath = path.join(process.cwd(), post.imageUrl.replace(/^\//, ''));
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    for (const url of [post.imageUrl, post.sourceImageUrl]) {
+      if (!url) continue;
+      const filePath = path.join(process.cwd(), url.replace(/^\//, ''));
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
     await this.repo.remove(post);
   }
@@ -260,6 +276,305 @@ Respond ONLY with strict JSON matching this shape, no markdown fences:
       `\n\n${NO_DASH_INSTRUCTION}`;
 
     return this.callOpenAiForContent(model, prompt);
+  }
+
+  // --- Product photo -> designed post ---
+
+  /**
+   * Palette/lighting/mood-only backdrop direction per business, deliberately
+   * separate from META_VISUALS: META_VISUALS describes OBJECTS (consoles,
+   * gemstones) which would fight input_fidelity by telling the image model to
+   * add extra objects around the user's real uploaded product.
+   */
+  private static readonly PRODUCT_POST_BACKDROPS: Record<string, string> = {
+    zenzicly:
+      'premium dark purple and indigo palette, gold and teal accent lighting, soft luxury studio mood',
+    cgagames:
+      'neon purple and red accent lighting on a dark backdrop, high-energy gaming mood, punchy contrast',
+    zenzicas:
+      'deep navy and electric blue gradient, clean corporate-tech mood, crisp and modern',
+  };
+
+  private static readonly PRODUCT_POST_BACKDROP_FALLBACK =
+    'a clean neutral studio backdrop with soft directional lighting that flatters the product without competing with it';
+
+  private static readonly DEFAULT_PRODUCT_POST_PROMPT_TEMPLATE = `You are a senior social media copywriter for {businessName}.
+About the business: {businessDescription}
+
+The attached image is a real product photo this business wants to post about.
+Here is what they said about it: "{brief}"
+
+Study the photo properly before writing. Notice the actual product: its colour,
+material, shape, finish, and any branding or text physically printed on it.
+Everything you write must be true to what is genuinely visible in that photo.
+Never invent a feature, material, colour, or claim the photo does not support.
+
+Write a post that earns its place in a feed:
+
+HOOK: one scroll-stopping opening line, under 60 characters. It should make
+someone stop mid-scroll. No "Introducing", no "Check out our", no generic
+announcement voice.
+
+CONTENT: 2 to 4 sentences that make a real buyer want this specific product.
+Be concrete and sensory, tied to what is actually in the photo and to the brief.
+Weave in the words a real buyer would type into a search (the product type, the
+material, the occasion or use case, the category this business sells in) so the
+post is discoverable, but it has to read like a person wrote it. If it sounds
+like keywords were bolted on, rewrite it.
+
+CTA: one clear, specific action tied to this product, not a generic sign-off.
+
+HASHTAGS: 4 to 6 that someone who actually buys this kind of product would
+follow. Mix broad reach with specific niche.
+
+Never use em dashes or double dashes anywhere; use a period, comma, or "and".
+
+Respond ONLY with strict JSON, no markdown fences:
+{
+  "hook": "the hook line, under 60 characters, exactly as it should be rendered on the image",
+  "ctaText": "a very short CTA for the image itself, 2 to 5 words, e.g. 'Shop the drop'",
+  "caption": "the full caption: hook as the first line, then the content sentences, then the CTA. Under 130 words. Do not append hashtags.",
+  "hashtags": ["4 to 6 relevant hashtags without the # symbol"]
+}`;
+
+  private buildProductImagePrompt(params: {
+    businessName: string;
+    backdrop: string;
+    hook: string;
+    ctaText: string;
+  }): string {
+    return `Turn this product photo into a polished, professional square (1:1) social media
+graphic for ${params.businessName}.
+
+Keep the product itself exactly as it appears in the photo. Do not change its
+shape, colour, material, proportions, or any logo or text physically printed on
+it. It must remain unmistakably the same real product a customer would receive.
+
+Restyle only what is around it. Replace or elevate the background, add tasteful
+studio lighting, soft realistic shadows, and depth so the product reads as
+premium and deliberately shot. Use this brand mood: ${params.backdrop}
+
+Do not add any extra objects, props, products, or scenery beyond simple
+backdrop, lighting and shadow. The uploaded product is the only subject.
+
+Compose it like a designed marketing graphic, not a plain product photo:
+- The product is the clear hero, with generous breathing room around it.
+- Overlay this exact headline near the top, bold, clean sans-serif: "${params.hook}"
+- Overlay this exact call to action near the bottom, smaller, set in a pill or
+  button shape: "${params.ctaText}"
+- Every overlaid character must be crisp, correctly spelled, high contrast
+  against whatever sits behind it, and comfortably readable on a phone.
+- Never let text cover the product's key details, and never let it run off the
+  edge of the frame.
+
+Do not add any other text, watermark, logo, price, badge, or website address
+beyond the two lines specified above and whatever is genuinely printed on the
+product itself.`;
+  }
+
+  private async callOpenAiForProductCopy(
+    model: string,
+    prompt: string,
+    photo: { buffer: Buffer; mimetype: string },
+  ): Promise<{ copy: ProductPostCopy; sawPhoto: boolean }> {
+    const imagePart = {
+      type: 'image_url' as const,
+      image_url: {
+        url: `data:${photo.mimetype};base64,${photo.buffer.toString('base64')}`,
+      },
+    };
+
+    let raw: string | null | undefined;
+    let sawPhoto = true;
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: prompt }, imagePart],
+          },
+        ],
+        response_format: { type: 'json_object' },
+      });
+      raw = completion.choices[0]?.message?.content;
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status !== 400) {
+        throw new BadRequestException(
+          `OpenAI request failed: ${describeError(error)}`,
+        );
+      }
+      // Vision may be unsupported on this model; degrade to text-only rather
+      // than hard-failing the whole feature.
+      this.logger.warn(
+        `Vision-based product copy call failed with 400, retrying text-only: ${describeError(error)}`,
+      );
+      sawPhoto = false;
+      const textOnlyCompletion = await this.openai.chat.completions
+        .create({
+          model,
+          messages: [
+            {
+              role: 'user',
+              content: `${prompt}\n\nYou cannot see the photo; write from the brief alone and stay general about appearance.`,
+            },
+          ],
+          response_format: { type: 'json_object' },
+        })
+        .catch((err) => {
+          throw new BadRequestException(
+            `OpenAI request failed: ${describeError(err)}`,
+          );
+        });
+      raw = textOnlyCompletion.choices[0]?.message?.content;
+    }
+
+    if (!raw) {
+      throw new BadRequestException('OpenAI did not return any content.');
+    }
+
+    let parsed: ProductPostCopy;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new BadRequestException('Failed to parse OpenAI response as JSON.');
+    }
+
+    parsed.hook = stripBannedDashes(parsed.hook ?? '');
+    parsed.ctaText = stripBannedDashes(parsed.ctaText ?? '');
+    parsed.caption = stripBannedDashes(parsed.caption ?? '');
+    parsed.hashtags = (parsed.hashtags ?? []).map((h) => stripBannedDashes(h));
+    return { copy: parsed, sawPhoto };
+  }
+
+  private async generateProductImage(params: {
+    photo: { buffer: Buffer; mimetype: string; extension: string };
+    prompt: string;
+  }): Promise<Buffer> {
+    const model = this.config.get<string>('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2';
+    const imageFile = await toFile(
+      params.photo.buffer,
+      `product.${params.photo.extension}`,
+      { type: params.photo.mimetype },
+    );
+
+    const result = await this.openai.images
+      .edit({
+        model,
+        image: [imageFile],
+        prompt: params.prompt,
+        size: '1024x1024',
+        quality: 'high',
+      })
+      .catch((error) => {
+        throw new BadRequestException(
+          `OpenAI image generation failed: ${describeError(error)}`,
+        );
+      });
+
+    const b64 = result.data?.[0]?.b64_json;
+    if (!b64) {
+      throw new BadRequestException('OpenAI did not return image data.');
+    }
+    return Buffer.from(b64, 'base64');
+  }
+
+  /**
+   * Generates a post from a real, uploaded product photo: a vision-capable
+   * copywriter call reads the photo and writes hook/content/CTA copy, then
+   * the same photo is fed into an image edit with input_fidelity:'high' so
+   * the real product is preserved while the background is restyled and the
+   * hook/CTA text is baked onto the image. Nothing is written to disk until
+   * both AI calls succeed.
+   */
+  async generateFromProductPhoto(
+    businessSlug: string,
+    photo: { buffer: Buffer; mimetype: string },
+    brief: string,
+    targetPlatforms?: PostPlatform[],
+  ): Promise<Post> {
+    const business = await this.businessService.getBySlugOrThrow(businessSlug);
+
+    const extension = PHOTO_MIME_EXTENSIONS[photo.mimetype];
+    if (!extension) {
+      throw new BadRequestException(
+        `Unsupported image type "${photo.mimetype}". Use PNG, JPEG, or WEBP.`,
+      );
+    }
+
+    const copyModel =
+      this.config.get<string>('OPENAI_VISION_MODEL') ??
+      this.config.get<string>('OPENAI_MODEL') ??
+      'gpt-5-mini';
+
+    const template =
+      business.productPostPromptTemplate?.trim() ||
+      PostsService.DEFAULT_PRODUCT_POST_PROMPT_TEMPLATE;
+    const copyPrompt = template
+      .replaceAll('{businessName}', business.name)
+      .replaceAll('{businessDescription}', business.description)
+      .replaceAll('{brief}', brief);
+
+    const { copy } = await this.callOpenAiForProductCopy(copyModel, copyPrompt, photo);
+
+    const backdrop =
+      PostsService.PRODUCT_POST_BACKDROPS[business.slug] ??
+      PostsService.PRODUCT_POST_BACKDROP_FALLBACK;
+    const imagePrompt = stripBannedDashes(
+      this.buildProductImagePrompt({
+        businessName: business.name,
+        backdrop,
+        hook: copy.hook,
+        ctaText: copy.ctaText,
+      }),
+    );
+
+    const imageBuffer = await this.generateProductImage({
+      photo: { ...photo, extension },
+      prompt: imagePrompt,
+    });
+
+    const sourceFileName = `${randomUUID()}-source.${extension}`;
+    const generatedFileName = `${randomUUID()}.png`;
+
+    let saved: Post;
+    try {
+      fs.writeFileSync(path.join(UPLOADS_DIR, sourceFileName), photo.buffer);
+      fs.writeFileSync(path.join(UPLOADS_DIR, generatedFileName), imageBuffer);
+
+      const platforms = targetPlatforms?.length
+        ? targetPlatforms
+        : [PostPlatform.FACEBOOK];
+      const platform = platforms.includes(PostPlatform.LINKEDIN)
+        ? platforms.every((p) => p === PostPlatform.LINKEDIN)
+          ? PostPlatform.LINKEDIN
+          : PostPlatform.FACEBOOK
+        : PostPlatform.FACEBOOK;
+
+      const post = this.repo.create({
+        businessId: business.id,
+        platform,
+        imagePrompt,
+        imageUrl: `/uploads/${generatedFileName}`,
+        sourceImageUrl: `/uploads/${sourceFileName}`,
+        brief,
+        caption: copy.caption,
+        hashtags: (copy.hashtags ?? []).map((h) => `#${h}`).join(' '),
+      });
+      saved = await this.repo.save(post);
+      await this.createDraftPublications(saved.id, platforms);
+    } catch (error) {
+      for (const fileName of [sourceFileName, generatedFileName]) {
+        const filePath = path.join(UPLOADS_DIR, fileName);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+      throw error;
+    }
+
+    return this.findOne(saved.id);
   }
 
   private async callOpenAiForContent(

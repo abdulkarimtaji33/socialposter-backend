@@ -40,6 +40,14 @@ export class BusinessProfile {
   @Column({ type: 'text', nullable: true })
   linkedinPromptTemplate: string | null;
 
+  /**
+   * Optional custom prompt template for the product-photo copywriter (vision) call.
+   * Supports placeholders: {businessName}, {businessDescription}, {brief}.
+   * Falls back to the built-in default prompt when empty.
+   */
+  @Column({ type: 'text', nullable: true })
+  productPostPromptTemplate: string | null;
+
   @Column({ default: false })
   autoPublish: boolean;
 

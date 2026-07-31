@@ -42,6 +42,14 @@ export class Post {
   @Column({ type: 'text', nullable: true })
   hashtags: string;
 
+  /** Original uploaded product photo this post was generated from, if any. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  sourceImageUrl: string | null;
+
+  /** User-provided brief that accompanied the product photo upload, if any. */
+  @Column({ type: 'text', nullable: true })
+  brief: string | null;
+
   @OneToMany(() => PostPublication, (publication) => publication.post, {
     cascade: true,
     eager: true,
