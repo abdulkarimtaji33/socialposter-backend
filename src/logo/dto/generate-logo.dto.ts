@@ -3,6 +3,6 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
 export class GenerateLogoDto {
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(20000)
   brief?: string;
 }
